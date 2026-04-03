@@ -438,6 +438,7 @@ pub struct SubComponent {
 pub struct PopupWindow {
     pub item_tree: ItemTree,
     pub position: MutExpression,
+    pub is_tooltip: bool,
 }
 
 #[derive(Debug)]
