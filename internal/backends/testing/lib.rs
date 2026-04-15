@@ -69,6 +69,7 @@ pub fn init_integration_test_with_system_time() {
 #[cfg(not(feature = "internal"))]
 pub fn mock_elapsed_time(duration: std::time::Duration) {
     i_slint_core::tests::slint_mock_elapsed_time(duration.as_millis() as _);
+    testing_backend::ensure_all_tracked_trees_instantiated();
 }
 
 /// Replace the font collection with embedded NotoSans fonts for deterministic test results.

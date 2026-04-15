@@ -1682,6 +1682,21 @@ fn generate_item_tree(
     target_struct.members.push((
         Access::Private,
         Declaration::Function(Function {
+            name: "ensure_instantiated_cb".into(),
+            signature: "([[maybe_unused]] slint::private_api::ItemTreeRef component) -> void"
+                .into(),
+            is_static: true,
+            statements: Some(vec![format!(
+                "reinterpret_cast<const {}*>(component.instance)->ensure_instantiated();",
+                item_tree_class_name
+            )]),
+            ..Default::default()
+        }),
+    ));
+
+    target_struct.members.push((
+        Access::Private,
+        Declaration::Function(Function {
             name: "item_geometry".into(),
             signature:
                 "([[maybe_unused]] slint::private_api::ItemTreeRef component, uint32_t index) -> slint::cbindgen_private::LogicalRect"
@@ -1810,6 +1825,7 @@ fn generate_item_tree(
         init: Some(format!(
             "{{ visit_children, get_item_ref, get_subtree_range, get_subtree, \
                 get_item_tree, parent_node, embed_component, subtree_index, layout_info, \
+                ensure_instantiated_cb, \
                 item_geometry, accessible_role, accessible_string_property, accessibility_action, \
                 supported_accessibility_actions, element_infos, window_adapter, \
                 slint::private_api::drop_in_place<{item_tree_class_name}>, slint::private_api::dealloc }}"
@@ -2074,6 +2090,7 @@ fn generate_sub_component(
     let mut children_visitor_cases = Vec::new();
     let mut subtrees_ranges_cases = Vec::new();
     let mut subtrees_components_cases = Vec::new();
+    let mut ensure_instantiated_stmts: Vec<String> = Vec::new();
 
     for sub in &component.sub_components {
         let field_name = ident(&sub.name);
@@ -2124,6 +2141,7 @@ fn generate_sub_component(
                         return;
                     }}",
             ));
+            ensure_instantiated_stmts.push(format!("self->{field_name}.ensure_instantiated();"));
         }
 
         target_struct.members.push((
@@ -2254,6 +2272,8 @@ fn generate_sub_component(
                 return;
             }}",
         ));
+        ensure_instantiated_stmts
+            .push(format!("{ensure_updated} self->{repeater_id}.recurse_ensure_instantiated();"));
 
         let rep_type = match data_type {
             Some(data_type) => {
@@ -2504,6 +2524,20 @@ fn generate_sub_component(
         "",
         element_infos_cases,
     );
+
+    {
+        let mut stmts = vec!["[[maybe_unused]] auto self = this;".to_owned()];
+        stmts.extend(ensure_instantiated_stmts);
+        target_struct.members.push((
+            field_access,
+            Declaration::Function(Function {
+                name: "ensure_instantiated".into(),
+                signature: "() const -> void".into(),
+                statements: Some(stmts),
+                ..Default::default()
+            }),
+        ));
+    }
 
     if !children_visitor_cases.is_empty() {
         target_struct.members.push((

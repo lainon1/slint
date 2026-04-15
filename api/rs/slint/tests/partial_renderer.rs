@@ -753,8 +753,11 @@ fn nowrap_text_change_doesnt_change_height() {
 
 #[test]
 fn create_item_tree_during_rendering() {
-    // This test has a `init` callback which will cause item tree to be changed during rendeiring,
-    // between the compute dirty region and the actual rendering.
+    // This test has a `init` callback which will cause item tree to be changed during rendering.
+    // Thanks to `ensure_instantiated`, the first-level cascade (cond1's init -> cond2) is
+    // materialized before rendering, so cond2's rectangles land in the dirty region. The deeper
+    // cascade (cond2-red's init -> cond3) still fires during the dirty-region walk itself, so
+    // cond3's rectangle is only instantiated during the actual render pass.
     slint::slint! {
         export component Ui inherits Window {
             in property <bool> cond1: false;
@@ -808,7 +811,7 @@ fn create_item_tree_during_rendering() {
     ui.set_cond1(true);
 
     assert!(window.draw_if_needed(|renderer| {
-        do_test_render_region(renderer, 10, 15, 22, 25);
+        do_test_render_region(renderer, 10, 10, 22, 25);
     }));
     // FIXME: in this case, there is nothing done to trigger any redraw. Ideally this call shouldn't be necessary.
     assert!(!window.draw_if_needed(|_| ()));
@@ -817,7 +820,7 @@ fn create_item_tree_during_rendering() {
     ui.set_foo(4.0);
 
     assert!(window.draw_if_needed(|renderer| {
-        do_test_render_region(renderer, 10, 4, 22, 25);
+        do_test_render_region(renderer, 12, 4, 22, 25);
     }));
 
     assert!(!window.draw_if_needed(|_| { unreachable!() }));

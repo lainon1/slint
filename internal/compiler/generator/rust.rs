@@ -915,6 +915,7 @@ fn generate_sub_component(
     let mut repeated_element_components: Vec<TokenStream> = Vec::new();
     let mut repeated_subtree_ranges: Vec<TokenStream> = Vec::new();
     let mut repeated_subtree_components: Vec<TokenStream> = Vec::new();
+    let mut ensure_instantiated_stmts: Vec<TokenStream> = Vec::new();
 
     for (idx, repeated) in component.repeated.iter_enumerated() {
         extra_components.push(generate_repeated_component(
@@ -957,6 +958,12 @@ fn generate_sub_component(
                     }
                 }
             ));
+            ensure_instantiated_stmts.push(quote!({
+                #ensure_updated
+                if let Some(inner) = #embed_item.subtree_component().upgrade() {
+                    sp::VRc::borrow_pin(&inner).as_ref().ensure_instantiated();
+                }
+            }));
         } else {
             let repeater_id = format_ident!("repeater{}", idx);
             let rep_inner_component_id =
@@ -1013,6 +1020,12 @@ fn generate_sub_component(
                     }
                 }
             ));
+            ensure_instantiated_stmts.push(quote!({
+                #ensure_updated
+                for instance in _self.#repeater_id.instances_vec() {
+                    sp::VRc::borrow_pin(&sp::VRc::into_dyn(instance)).as_ref().ensure_instantiated();
+                }
+            }));
             repeated_element_components.push(if repeated.index_prop.is_some() {
                 quote!(#repeater_id: sp::Repeater<#rep_inner_component_id>)
             } else {
@@ -1121,6 +1134,9 @@ fn generate_sub_component(
                 #repeater_offset..=#last_repeater => {
                     #sub_compo_field.apply_pin(_self).subtree_component(dyn_index - #repeater_offset, subtree_index, result)
                 }
+            ));
+            ensure_instantiated_stmts.push(quote!(
+                #sub_compo_field.apply_pin(_self).ensure_instantiated_impl();
             ));
         }
 
@@ -1373,6 +1389,12 @@ fn generate_sub_component(
                     #(#repeated_visit_branch)*
                     _ => panic!("invalid dyn_index {}", dyn_index),
                 }
+            }
+
+            fn ensure_instantiated_impl(self: ::core::pin::Pin<&Self>) {
+                #![allow(unused)]
+                let _self = self;
+                #(#ensure_instantiated_stmts)*
             }
 
             fn layout_info(self: ::core::pin::Pin<&Self>, orientation: sp::Orientation) -> sp::LayoutInfo {
@@ -1926,6 +1948,10 @@ fn generate_item_tree(
 
             fn layout_info(self: ::core::pin::Pin<&Self>, orientation: sp::Orientation) -> sp::LayoutInfo {
                 self.layout_info(orientation)
+            }
+
+            fn ensure_instantiated(self: ::core::pin::Pin<&Self>) {
+                self.ensure_instantiated_impl();
             }
 
             fn item_geometry(self: ::core::pin::Pin<&Self>, index: u32) -> sp::LogicalRect {

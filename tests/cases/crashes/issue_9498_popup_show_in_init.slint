@@ -1,0 +1,34 @@
+// Copyright © SixtyFPS GmbH <info@slint.dev>
+// SPDX-License-Identifier: GPL-3.0-only OR LicenseRef-Slint-Royalty-free-2.0 OR LicenseRef-Slint-Software-3.0
+
+// Regression test for #9498: popup.show() in the enclosing component's init
+// used to panic with "Recursion detected".
+
+export component TestCase inherits Window {
+    width: 200px;
+    height: 200px;
+    popup := PopupWindow {
+        x: 10px;
+        y: 10px;
+        width: 50px;
+        height: 50px;
+        Rectangle { background: red; }
+    }
+    init => {
+        popup.show();
+    }
+}
+
+/*
+```rust
+let _instance = TestCase::new().unwrap();
+```
+
+```cpp
+auto handle = TestCase::create();
+```
+
+```js
+var _instance = new slint.TestCase({});
+```
+*/

@@ -14,8 +14,29 @@ use i_slint_core::items::TextWrap;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::pin::Pin;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Mutex;
+
+std::thread_local! {
+    /// Live windows targeted by [`ensure_all_tracked_trees_instantiated`].
+    static ALL_TESTING_WINDOWS: RefCell<Vec<Weak<TestingWindow>>> =
+        const { RefCell::new(Vec::new()) }
+}
+
+/// Run the `ensure_instantiated` repeater instantiation pass on every live
+/// testing window.
+pub(crate) fn ensure_all_tracked_trees_instantiated() {
+    let live: Vec<Rc<TestingWindow>> = ALL_TESTING_WINDOWS.with(|list| {
+        let mut list = list.borrow_mut();
+        list.retain(|w| w.upgrade().is_some());
+        list.iter().filter_map(|w| w.upgrade()).collect()
+    });
+    for tw in live {
+        if let Some(component) = WindowInner::from_pub(&tw.window).try_component() {
+            vtable::VRc::borrow_pin(&component).as_ref().ensure_instantiated();
+        }
+    }
+}
 
 const FIXED_TEST_FONT: &str = "FixedTestFont";
 
@@ -52,14 +73,16 @@ impl i_slint_core::platform::Platform for TestingBackend {
     fn create_window_adapter(
         &self,
     ) -> Result<Rc<dyn WindowAdapter>, i_slint_core::platform::PlatformError> {
-        Ok(Rc::new_cyclic(|self_weak| TestingWindow {
+        let window = Rc::new_cyclic(|self_weak| TestingWindow {
             window: i_slint_core::api::Window::new(self_weak.clone() as _),
             size: Default::default(),
             ime_requests: Default::default(),
             mouse_cursor: Default::default(),
             all_item_trees: Default::default(),
             open_url: self.open_url.clone(),
-        }))
+        });
+        ALL_TESTING_WINDOWS.with(|list| list.borrow_mut().push(Rc::downgrade(&window)));
+        Ok(window)
     }
 
     fn duration_since_start(&self) -> core::time::Duration {

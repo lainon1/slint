@@ -102,6 +102,12 @@ pub struct ItemTreeVTable {
     pub layout_info:
         extern "C" fn(::core::pin::Pin<VRef<ItemTreeVTable>>, Orientation) -> LayoutInfo,
 
+    /// Recursively materialize every Repeater, Conditional, and
+    /// ComponentContainer reachable from this ItemTree. Called at event-loop
+    /// boundaries so init code runs outside any in-flight property evaluation.
+    /// This is the "repeater instantiation pass".
+    pub ensure_instantiated: extern "C" fn(::core::pin::Pin<VRef<ItemTreeVTable>>),
+
     /// Returns the item's geometry (relative to its parent item)
     pub item_geometry:
         extern "C" fn(::core::pin::Pin<VRef<ItemTreeVTable>>, item_index: u32) -> LogicalRect,
@@ -1580,6 +1586,8 @@ mod tests {
         ) -> bool {
             false
         }
+
+        fn ensure_instantiated(self: core::pin::Pin<&Self>) {}
 
         fn layout_info(self: core::pin::Pin<&Self>, o: Orientation) -> LayoutInfo {
             if let Some(wi) = &self.window_item {

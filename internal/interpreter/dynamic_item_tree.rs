@@ -262,6 +262,10 @@ impl ItemTree for ErasedItemTreeBox {
         self.borrow().as_ref().layout_info(orientation)
     }
 
+    fn ensure_instantiated(self: Pin<&Self>) {
+        self.borrow().as_ref().ensure_instantiated();
+    }
+
     fn get_item_tree(self: Pin<&Self>) -> Slice<'_, ItemTreeNode> {
         get_item_tree(self.get_ref().borrow())
     }
@@ -1427,6 +1431,7 @@ pub(crate) fn generate_item_tree<'id>(
     let t = ItemTreeVTable {
         visit_children_item,
         layout_info,
+        ensure_instantiated,
         get_item_ref,
         get_item_tree,
         get_subtree_range,
@@ -2065,6 +2070,40 @@ pub fn get_repeater_by_name<'a, 'id>(
     let rep_index = instance_ref.description.repeater_names[name];
     let rep_in_comp = instance_ref.description.repeater[rep_index].unerase(guard);
     (rep_in_comp.offset.apply_pin(instance_ref.instance), rep_in_comp.item_tree_to_repeat.clone())
+}
+
+#[cfg_attr(not(feature = "ffi"), i_slint_core_macros::remove_extern)]
+extern "C" fn ensure_instantiated(component: ItemTreeRefPin) {
+    generativity::make_guard!(guard);
+    // Safety: called through the vtable of our own ItemTreeDescription.
+    let instance_ref = unsafe { InstanceRef::from_pin_ref(component, guard) };
+
+    for (tree_index, node) in instance_ref.description.item_tree.iter().enumerate() {
+        if !matches!(node, ItemTreeNode::Item { .. }) {
+            continue;
+        }
+        let item_ref = component.as_ref().get_item_ref(tree_index as u32);
+        if let Some(container) = i_slint_core::items::ItemRef::downcast_pin::<
+            i_slint_core::items::ComponentContainer,
+        >(item_ref)
+        {
+            container.ensure_updated();
+            if let Some(inner) = container.subtree_component().upgrade() {
+                vtable::VRc::borrow_pin(&inner).as_ref().ensure_instantiated();
+            }
+        }
+    }
+
+    for rep_in_comp in &instance_ref.description.repeater {
+        // Safety: we do not mix the repeater with a different component id.
+        let rep_in_comp = unsafe { rep_in_comp.get_untagged() };
+        ensure_repeater_updated(instance_ref, rep_in_comp);
+        let repeater = rep_in_comp.offset.apply_pin(instance_ref.instance);
+        for instance in repeater.instances_vec() {
+            let erased = vtable::VRc::into_dyn(instance);
+            vtable::VRc::borrow_pin(&erased).as_ref().ensure_instantiated();
+        }
+    }
 }
 
 #[cfg_attr(not(feature = "ffi"), i_slint_core_macros::remove_extern)]

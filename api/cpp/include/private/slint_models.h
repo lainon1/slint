@@ -1185,6 +1185,19 @@ public:
             }
         }
     }
+
+    void recurse_ensure_instantiated() const
+    {
+        if (!inner)
+            return;
+        for (auto &x : inner->data) {
+            if (x.ptr) {
+                vtable::VRef<private_api::ItemTreeVTable> ref { &C::static_vtable,
+                                                                const_cast<C *>(&(**x.ptr)) };
+                ref.vtable->ensure_instantiated(ref);
+            }
+        }
+    }
 };
 
 template<typename C>
@@ -1240,6 +1253,15 @@ public:
     {
         if (instance) {
             f(*instance);
+        }
+    }
+
+    void recurse_ensure_instantiated() const
+    {
+        if (instance) {
+            vtable::VRef<private_api::ItemTreeVTable> ref { &C::static_vtable,
+                                                            const_cast<C *>(&(**instance)) };
+            ref.vtable->ensure_instantiated(ref);
         }
     }
 };

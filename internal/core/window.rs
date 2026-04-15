@@ -584,6 +584,24 @@ impl WindowInner {
         self.component.borrow().upgrade()
     }
 
+    /// Walk the component tree and every active popup to materialize every
+    /// Repeater, Conditional and ComponentContainer. Must run at event-loop
+    /// boundaries, outside any in-flight property evaluation.
+    pub fn ensure_tree_instantiated(&self) {
+        if let Some(component) = self.try_component() {
+            ItemTreeRc::borrow_pin(&component).as_ref().ensure_instantiated();
+        }
+        for popup in self.active_popups.borrow().iter() {
+            ItemTreeRc::borrow_pin(&popup.component).as_ref().ensure_instantiated();
+        }
+    }
+
+    /// Run pending change handlers and then [`Self::ensure_tree_instantiated`].
+    pub fn run_change_handlers_and_ensure_tree_instantiated(&self) {
+        crate::properties::ChangeTracker::run_change_handlers();
+        self.ensure_tree_instantiated();
+    }
+
     /// Returns a slice of the active popups.
     pub fn active_popups(&self) -> core::cell::Ref<'_, [PopupWindow]> {
         core::cell::Ref::map(self.active_popups.borrow(), |v| v.as_slice())
@@ -595,6 +613,7 @@ impl WindowInner {
         crate::animations::update_animations();
 
         let Some(item_tree) = self.try_component() else { return };
+        self.ensure_tree_instantiated();
 
         // handle multiple press release
         event = self.click_state.check_repeat(event, self.context().platform().click_interval());
@@ -768,7 +787,7 @@ impl WindowInner {
             WindowInner::from_pub(root_adapter.window()).close_popup(popup_id);
         }
 
-        crate::properties::ChangeTracker::run_change_handlers();
+        self.run_change_handlers_and_ensure_tree_instantiated();
     }
 
     /// Receive a raw touch event from a backend and either forward it as a mouse
@@ -802,6 +821,7 @@ impl WindowInner {
         &self,
         mut internal_key_event: InternalKeyEvent,
     ) -> crate::input::KeyEventResult {
+        self.ensure_tree_instantiated();
         // NFC-normalize the event text so that shortcut matching works consistently
         // regardless of the composed/decomposed form the backend provides
         // (e.g. é as U+00E9 vs e + U+0301).
@@ -832,7 +852,7 @@ impl WindowInner {
         // Slint widgets. Therefore we process the menubar shortcuts here first and abort event
         // propagation if a shortcut matches.
         if self.process_menubar_shortcuts(&internal_key_event) == KeyEventResult::EventAccepted {
-            crate::properties::ChangeTracker::run_change_handlers();
+            self.run_change_handlers_and_ensure_tree_instantiated();
             return crate::input::KeyEventResult::EventAccepted;
         }
 
@@ -861,7 +881,7 @@ impl WindowInner {
             if i.borrow().as_ref().capture_key_event(&internal_key_event, &self.window_adapter(), i)
                 == crate::input::KeyEventResult::EventAccepted
             {
-                crate::properties::ChangeTracker::run_change_handlers();
+                self.run_change_handlers_and_ensure_tree_instantiated();
                 return crate::input::KeyEventResult::EventAccepted;
             }
         }
@@ -876,7 +896,7 @@ impl WindowInner {
                 &focus_item,
             ) == crate::input::KeyEventResult::EventAccepted
             {
-                crate::properties::ChangeTracker::run_change_handlers();
+                self.run_change_handlers_and_ensure_tree_instantiated();
                 return crate::input::KeyEventResult::EventAccepted;
             }
             item = focus_item.parent_item(ParentItemTraversalMode::StopAtPopups);
@@ -892,7 +912,7 @@ impl WindowInner {
             && internal_key_event.event_type == KeyEventType::KeyPressed
         {
             self.focus_next_item();
-            crate::properties::ChangeTracker::run_change_handlers();
+            self.run_change_handlers_and_ensure_tree_instantiated();
             return crate::input::KeyEventResult::EventAccepted;
         } else if (internal_key_event.key_event.text.starts_with(key_codes::Backtab)
             || (internal_key_event.key_event.text.starts_with(key_codes::Tab)
@@ -901,7 +921,7 @@ impl WindowInner {
             && !extra_mod
         {
             self.focus_previous_item();
-            crate::properties::ChangeTracker::run_change_handlers();
+            self.run_change_handlers_and_ensure_tree_instantiated();
             return crate::input::KeyEventResult::EventAccepted;
         } else if internal_key_event.event_type == KeyEventType::KeyPressed
             && internal_key_event.key_event.text.starts_with(key_codes::Escape)
@@ -928,11 +948,11 @@ impl WindowInner {
             if close_on_escape {
                 window.close_top_popup();
             }
-            crate::properties::ChangeTracker::run_change_handlers();
+            self.run_change_handlers_and_ensure_tree_instantiated();
             return crate::input::KeyEventResult::EventAccepted;
         }
 
-        crate::properties::ChangeTracker::run_change_handlers();
+        self.run_change_handlers_and_ensure_tree_instantiated();
         crate::input::KeyEventResult::EventIgnored
     }
 
@@ -1204,6 +1224,9 @@ impl WindowInner {
         &self,
         render_components: impl FnOnce(&[(ItemTreeWeak, LogicalPoint)]) -> T,
     ) -> Option<T> {
+        // Must run before entering the redraw tracker scope so init code does
+        // not attach its geometry reads to it.
+        self.ensure_tree_instantiated();
         let component_weak = ItemTreeRc::downgrade(&self.try_component()?);
         Some(self.pinned_fields.as_ref().project_ref().redraw_tracker.evaluate_as_dependency_root(
             || {
@@ -1350,6 +1373,9 @@ impl WindowInner {
         parent_item: &ItemRc,
         is_menu: bool,
     ) -> NonZeroU32 {
+        // Popups live in their own ItemTree, which was invisible to any
+        // earlier instantiation pass; materialize it before the layout queries below.
+        ItemTreeRc::borrow_pin(popup_componentrc).as_ref().ensure_instantiated();
         let position = parent_item
             .map_to_native_window(parent_item.geometry().origin + position.to_euclid().to_vector());
         let popup_component = ItemTreeRc::borrow_pin(popup_componentrc);
