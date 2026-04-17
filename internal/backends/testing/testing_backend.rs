@@ -32,9 +32,7 @@ pub(crate) fn ensure_all_tracked_trees_instantiated() {
         list.iter().filter_map(|w| w.upgrade()).collect()
     });
     for tw in live {
-        if let Some(component) = WindowInner::from_pub(&tw.window).try_component() {
-            vtable::VRc::borrow_pin(&component).as_ref().ensure_instantiated();
-        }
+        WindowInner::from_pub(&tw.window).ensure_tree_instantiated();
     }
 }
 

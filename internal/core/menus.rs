@@ -97,7 +97,7 @@ impl MenuFromItemTree {
     }
 
     fn update_shadow_tree_recursive(&self, parent: &ItemRc) -> SharedVector<MenuEntry> {
-        vtable::VRc::borrow_pin(parent.item_tree()).as_ref().ensure_instantiated();
+        crate::item_tree::ensure_item_tree_instantiated(parent.item_tree());
 
         let mut result = SharedVector::default();
         let mut last_is_separator = false;

@@ -106,7 +106,8 @@ pub struct ItemTreeVTable {
     /// ComponentContainer reachable from this ItemTree. Called at event-loop
     /// boundaries so init code runs outside any in-flight property evaluation.
     /// This is the "repeater instantiation pass".
-    pub ensure_instantiated: extern "C" fn(::core::pin::Pin<VRef<ItemTreeVTable>>),
+    /// Returns `true` if any instance was created or removed.
+    pub ensure_instantiated: extern "C" fn(::core::pin::Pin<VRef<ItemTreeVTable>>) -> bool,
 
     /// Returns the item's geometry (relative to its parent item)
     pub item_geometry:
@@ -172,6 +173,14 @@ pub type ItemTreeRefPin<'a> = core::pin::Pin<ItemTreeRef<'a>>;
 pub type ItemTreeRc = vtable::VRc<ItemTreeVTable, Dyn>;
 /// Type alias to the commonly used VWeak<ItemTreeVTable, Dyn>>
 pub type ItemTreeWeak = vtable::VWeak<ItemTreeVTable, Dyn>;
+
+/// Ensure all repeaters and conditionals within the given item tree are
+/// instantiated. Call this before non-rendering tree walks that use
+/// `first_child` / `next_sibling`.
+/// Returns `true` if any instance was created or removed.
+pub fn ensure_item_tree_instantiated(item_tree: &vtable::VRc<ItemTreeVTable>) -> bool {
+    vtable::VRc::borrow_pin(item_tree).as_ref().ensure_instantiated()
+}
 
 /// Call init() on the ItemVTable for each item of the ItemTree.
 pub fn register_item_tree(item_tree_rc: &ItemTreeRc, window_adapter: Option<WindowAdapterRc>) {
@@ -1587,7 +1596,9 @@ mod tests {
             false
         }
 
-        fn ensure_instantiated(self: core::pin::Pin<&Self>) {}
+        fn ensure_instantiated(self: core::pin::Pin<&Self>) -> bool {
+            false
+        }
 
         fn layout_info(self: core::pin::Pin<&Self>, o: Orientation) -> LayoutInfo {
             if let Some(wi) = &self.window_item {

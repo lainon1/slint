@@ -453,9 +453,7 @@ impl FocusScope {
             let mut found = list.found.borrow_mut();
             found.clear();
 
-            crate::item_tree::ItemTreeRc::borrow_pin(&self_rc.item_tree())
-                .as_ref()
-                .ensure_instantiated();
+            crate::item_tree::ensure_item_tree_instantiated(&self_rc.item_tree());
             let mut next = self_rc.first_child();
             while let Some(child) = next {
                 if let Some(key_binding) = ItemRc::downcast::<KeyBinding>(&child)

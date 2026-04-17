@@ -1073,7 +1073,7 @@ public:
     }
 
     template<typename Parent>
-    void ensure_updated(const Parent *parent) const
+    bool ensure_updated(const Parent *parent) const
     {
         refresh_model();
 
@@ -1086,11 +1086,9 @@ public:
             } else {
                 inner->data.clear();
             }
-        } else {
-            // just do a get() on the model to register dependencies so that, for example, the
-            // layout property tracker becomes dirty.
-            model.get();
+            return true;
         }
+        return false;
     }
 
     template<typename Parent>
@@ -1118,6 +1116,53 @@ public:
         cbindgen_private::slint_repeater_ensure_updated_listview(
                 &ops, &inner->layout_state, m->row_count(), viewport_width, viewport_height,
                 viewport_y, listview_width, listview_height);
+    }
+
+    /// Like ensure_updated_listview but skips when neither the model
+    /// binding nor the dirty flag is set. Returns true when work was done.
+    template<typename Parent>
+    bool ensure_updated_listview_if_dirty(const Parent *parent,
+                                 const private_api::Property<float> *viewport_width,
+                                 const private_api::Property<float> *viewport_height,
+                                 const private_api::Property<float> *viewport_y,
+                                 float listview_width, float listview_height) const
+    {
+        if (!is_dirty())
+            return false;
+        ensure_updated_listview(parent, viewport_width, viewport_height,
+                                viewport_y, listview_width, listview_height);
+        return true;
+    }
+
+    /// Returns true if the repeater's model or data has changed since the
+    /// last ensure_updated call.
+    bool is_dirty() const
+    {
+        return model.is_dirty() || (inner && inner->is_dirty.get());
+    }
+
+    /// Read the model and dirty flag so the current tracking scope (e.g. the
+    /// redraw tracker) is notified when the model or its data changes.
+    void track_model_changes() const
+    {
+        model.get();
+        if (inner) inner->is_dirty.get();
+    }
+
+    /// Like track_model_changes but also reads the viewport properties so
+    /// that scrolling triggers a redraw.
+    void track_changes_listview(
+            const private_api::Property<float> *viewport_width,
+            const private_api::Property<float> *viewport_height,
+            const private_api::Property<float> *viewport_y,
+            [[maybe_unused]] float listview_width,
+            const private_api::Property<float> *listview_height) const
+    {
+        track_model_changes();
+        viewport_width->get();
+        viewport_height->get();
+        viewport_y->get();
+        listview_height->get();
     }
 
     uint64_t visit(TraversalOrder order, private_api::ItemVisitorRefMut visitor) const
@@ -1186,17 +1231,19 @@ public:
         }
     }
 
-    void recurse_ensure_instantiated() const
+    bool recurse_ensure_instantiated() const
     {
         if (!inner)
-            return;
+            return false;
+        bool changed = false;
         for (auto &x : inner->data) {
             if (x.ptr) {
                 vtable::VRef<private_api::ItemTreeVTable> ref { &C::static_vtable,
                                                                 const_cast<C *>(&(**x.ptr)) };
-                ref.vtable->ensure_instantiated(ref);
+                changed |= ref.vtable->ensure_instantiated(ref);
             }
         }
+        return changed;
     }
 };
 
@@ -1214,14 +1261,26 @@ public:
     }
 
     template<typename Parent>
-    void ensure_updated(const Parent *parent) const
+    bool ensure_updated(const Parent *parent) const
     {
         if (!model.get()) {
-            instance = std::nullopt;
+            bool was_some = instance.has_value();
+            if (was_some)
+                instance = std::nullopt;
+            return was_some;
         } else if (!instance) {
             instance = C::create(parent);
             (*instance)->init();
+            return true;
         }
+        return false;
+    }
+
+    /// Read the condition so the current tracking scope (e.g. the redraw
+    /// tracker) is notified when the condition changes.
+    void track_model_changes() const
+    {
+        model.get();
     }
 
     uint64_t visit(TraversalOrder order, private_api::ItemVisitorRefMut visitor) const
@@ -1256,13 +1315,14 @@ public:
         }
     }
 
-    void recurse_ensure_instantiated() const
+    bool recurse_ensure_instantiated() const
     {
         if (instance) {
             vtable::VRef<private_api::ItemTreeVTable> ref { &C::static_vtable,
                                                             const_cast<C *>(&(**instance)) };
-            ref.vtable->ensure_instantiated(ref);
+            return ref.vtable->ensure_instantiated(ref);
         }
+        return false;
     }
 };
 

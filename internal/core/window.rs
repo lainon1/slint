@@ -585,20 +585,35 @@ impl WindowInner {
     }
 
     /// Walk the component tree and every active popup to materialize every
-    /// Repeater, Conditional and ComponentContainer. Must run at event-loop
-    /// boundaries, outside any in-flight property evaluation.
+    /// Repeater, Conditional and ComponentContainer.  Runs change handlers
+    /// and the instantiation pass in a loop because init callbacks may set
+    /// properties that trigger change handlers, and change handlers may
+    /// make new conditionals/repeaters dirty.
     pub fn ensure_tree_instantiated(&self) {
-        if let Some(component) = self.try_component() {
-            ItemTreeRc::borrow_pin(&component).as_ref().ensure_instantiated();
-        }
-        for popup in self.active_popups.borrow().iter() {
-            ItemTreeRc::borrow_pin(&popup.component).as_ref().ensure_instantiated();
+        // Instantiation and change handlers run in a loop because init
+        // callbacks may set properties that trigger change handlers, and
+        // change handlers may dirty new conditionals / repeaters.
+        // Instantiation runs first so that ListView's ensure_updated_listview
+        // sees the model property before any change handler can reset it.
+        // Stop as soon as nothing changed, with a hard limit of 10
+        // iterations to prevent infinite loops from circular dependencies.
+        for _ in 0..10 {
+            let mut changed = false;
+            if let Some(component) = self.try_component() {
+                changed |= crate::item_tree::ensure_item_tree_instantiated(&component);
+            }
+            for popup in self.active_popups.borrow().iter() {
+                changed |= crate::item_tree::ensure_item_tree_instantiated(&popup.component);
+            }
+            changed |= crate::properties::ChangeTracker::run_change_handlers_once();
+            if !changed {
+                break;
+            }
         }
     }
 
     /// Run pending change handlers and then [`Self::ensure_tree_instantiated`].
     pub fn run_change_handlers_and_ensure_tree_instantiated(&self) {
-        crate::properties::ChangeTracker::run_change_handlers();
         self.ensure_tree_instantiated();
     }
 
@@ -1375,7 +1390,7 @@ impl WindowInner {
     ) -> NonZeroU32 {
         // Popups live in their own ItemTree, which was invisible to any
         // earlier instantiation pass; materialize it before the layout queries below.
-        ItemTreeRc::borrow_pin(popup_componentrc).as_ref().ensure_instantiated();
+        crate::item_tree::ensure_item_tree_instantiated(popup_componentrc);
         let position = parent_item
             .map_to_native_window(parent_item.geometry().origin + position.to_euclid().to_vector());
         let popup_component = ItemTreeRc::borrow_pin(popup_componentrc);

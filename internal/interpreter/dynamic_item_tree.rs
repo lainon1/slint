@@ -262,8 +262,8 @@ impl ItemTree for ErasedItemTreeBox {
         self.borrow().as_ref().layout_info(orientation)
     }
 
-    fn ensure_instantiated(self: Pin<&Self>) {
-        self.borrow().as_ref().ensure_instantiated();
+    fn ensure_instantiated(self: Pin<&Self>) -> bool {
+        self.borrow().as_ref().ensure_instantiated()
     }
 
     fn get_item_tree(self: Pin<&Self>) -> Slice<'_, ItemTreeNode> {
@@ -825,8 +825,7 @@ extern "C" fn visit_children_item(
                 VisitChildrenResult::CONTINUE
             } else {
                 generativity::make_guard!(guard);
-                let rep_in_comp =
-                    instance_ref.description.repeater[index as usize].unerase(guard);
+                let rep_in_comp = instance_ref.description.repeater[index as usize].unerase(guard);
                 let repeater = rep_in_comp.offset.apply_pin(instance_ref.instance);
                 repeater.visit(order, visitor)
             }
@@ -877,7 +876,7 @@ fn ensure_repeater_updated<'id>(
             assume_property_logical_length(get_property_ptr(&lv.listview_height, instance_ref)),
         );
     } else {
-        repeater.ensure_updated(init);
+        let _ = repeater.ensure_updated(init);
     }
 }
 
@@ -2071,11 +2070,12 @@ pub fn get_repeater_by_name<'a, 'id>(
 }
 
 #[cfg_attr(not(feature = "ffi"), i_slint_core_macros::remove_extern)]
-extern "C" fn ensure_instantiated(component: ItemTreeRefPin) {
+extern "C" fn ensure_instantiated(component: ItemTreeRefPin) -> bool {
     generativity::make_guard!(guard);
     // Safety: called through the vtable of our own ItemTreeDescription.
     let instance_ref = unsafe { InstanceRef::from_pin_ref(component, guard) };
 
+    let mut changed = false;
     for (tree_index, node) in instance_ref.description.item_tree.iter().enumerate() {
         if !matches!(node, ItemTreeNode::Item { .. }) {
             continue;
@@ -2087,7 +2087,7 @@ extern "C" fn ensure_instantiated(component: ItemTreeRefPin) {
         {
             container.ensure_updated();
             if let Some(inner) = container.subtree_component().upgrade() {
-                vtable::VRc::borrow_pin(&inner).as_ref().ensure_instantiated();
+                changed |= i_slint_core::item_tree::ensure_item_tree_instantiated(&inner);
             }
         }
     }
@@ -2095,13 +2095,46 @@ extern "C" fn ensure_instantiated(component: ItemTreeRefPin) {
     for rep_in_comp in &instance_ref.description.repeater {
         // Safety: we do not mix the repeater with a different component id.
         let rep_in_comp = unsafe { rep_in_comp.get_untagged() };
-        ensure_repeater_updated(instance_ref, rep_in_comp);
+        let is_listview = rep_in_comp
+            .item_tree_to_repeat
+            .original
+            .parent_element
+            .borrow()
+            .upgrade()
+            .unwrap()
+            .borrow()
+            .repeated
+            .as_ref()
+            .unwrap()
+            .is_listview
+            .is_some();
+        if is_listview {
+            // The interpreter's visit_children_item does not call
+            // ensure_updated_listview, so we must do it here.
+            ensure_repeater_updated(instance_ref, rep_in_comp);
+        } else {
+            let repeater = rep_in_comp.offset.apply_pin(instance_ref.instance);
+            let init = || {
+                let extra_data =
+                    instance_ref.description.extra_data_offset.apply(instance_ref.as_ref());
+                instantiate(
+                    rep_in_comp.item_tree_to_repeat.clone(),
+                    instance_ref.self_weak().get().cloned(),
+                    None,
+                    None,
+                    extra_data.globals.get().unwrap().clone(),
+                )
+            };
+            changed |= repeater.ensure_updated(init);
+        }
         let repeater = rep_in_comp.offset.apply_pin(instance_ref.instance);
         for instance in repeater.instances_vec() {
-            let erased = vtable::VRc::into_dyn(instance);
-            vtable::VRc::borrow_pin(&erased).as_ref().ensure_instantiated();
+            changed |= i_slint_core::item_tree::ensure_item_tree_instantiated(
+                &vtable::VRc::into_dyn(instance),
+            );
         }
     }
+    changed
 }
 
 #[cfg_attr(not(feature = "ffi"), i_slint_core_macros::remove_extern)]

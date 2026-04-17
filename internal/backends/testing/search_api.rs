@@ -315,6 +315,7 @@ impl ElementHandle {
         active_popups: &[(ItemRc, ItemTreeRc)],
     ) -> Option<R> {
         let self_item = self.item.upgrade()?;
+        i_slint_core::item_tree::ensure_item_tree_instantiated(self_item.item_tree());
 
         let visit_attached_popups =
             |item_rc: &ItemRc, visitor: &mut dyn FnMut(ElementHandle) -> ControlFlow<R>| {

@@ -545,6 +545,21 @@ impl<C: RepeatedItemTree + 'static> Repeater<C> {
         self.project_ref().0.get()
     }
 
+    /// Returns `true` if the repeater's model or data has changed since the
+    /// last `ensure_updated` call.
+    pub fn is_dirty(self: Pin<&Self>) -> bool {
+        let model_dirty = self.data().project_ref().model.is_dirty();
+        let flag_dirty = self.data().project_ref().is_dirty.get();
+        model_dirty || flag_dirty
+    }
+
+    /// Read the model and dirty flag so the current tracking scope (e.g. the
+    /// redraw tracker) is notified when the model or its data changes.
+    pub fn track_model_changes(self: Pin<&Self>) {
+        self.data().project_ref().model.get();
+        self.data().project_ref().is_dirty.get();
+    }
+
     fn model(self: Pin<&Self>) -> ModelRc<C::Data> {
         let model = self.data().project_ref().model;
 
@@ -565,10 +580,11 @@ impl<C: RepeatedItemTree + 'static> Repeater<C> {
 
     /// Call this function to make sure that the model is updated.
     /// The init function is the function to create a ItemTree
-    pub fn ensure_updated(self: Pin<&Self>, init: impl Fn() -> ItemTreeRc<C>) {
+    /// Returns `true` if instances were actually created or removed.
+    pub fn ensure_updated(self: Pin<&Self>, init: impl Fn() -> ItemTreeRc<C>) -> bool {
         let model = self.model();
         if !self.data().project_ref().is_dirty.get() {
-            return;
+            return false;
         }
         let count = model.row_count();
         let mut inner = self.0.inner.borrow_mut();
@@ -583,6 +599,7 @@ impl<C: RepeatedItemTree + 'static> Repeater<C> {
         // init code do not attach to the current evaluation context (e.g.
         // the redraw tracker or a layout binding).
         crate::properties::evaluate_no_tracking(|| self.init_instances(indices_to_init));
+        true
     }
 
     fn init_instances(&self, indices: Vec<usize>) {
@@ -592,6 +609,51 @@ impl<C: RepeatedItemTree + 'static> Repeater<C> {
                 comp.init();
             }
         }
+    }
+
+    /// Like [`Self::track_model_changes`] but also reads the viewport
+    /// properties so that scrolling triggers a redraw.
+    pub fn track_changes_listview(
+        self: Pin<&Self>,
+        viewport_width: Pin<&Property<LogicalLength>>,
+        viewport_height: Pin<&Property<LogicalLength>>,
+        viewport_y: Pin<&Property<LogicalLength>>,
+        listview_width: LogicalLength,
+        listview_height: Pin<&Property<LogicalLength>>,
+    ) {
+        self.track_model_changes();
+        viewport_width.get();
+        viewport_height.get();
+        viewport_y.get();
+        let _ = listview_width;
+        listview_height.get();
+    }
+
+    /// Like [`Self::ensure_updated_listview`] but skips when neither the
+    /// model binding nor the dirty flag is set.  Returns `true` when work
+    /// was actually done.
+    pub fn ensure_updated_listview_if_dirty(
+        self: Pin<&Self>,
+        init: impl Fn() -> ItemTreeRc<C>,
+        viewport_width: Pin<&Property<LogicalLength>>,
+        viewport_height: Pin<&Property<LogicalLength>>,
+        viewport_y: Pin<&Property<LogicalLength>>,
+        listview_width: LogicalLength,
+        listview_height: Pin<&Property<LogicalLength>>,
+    ) -> bool {
+        if !self.data().project_ref().model.is_dirty() && !self.data().project_ref().is_dirty.get()
+        {
+            return false;
+        }
+        self.ensure_updated_listview(
+            init,
+            viewport_width,
+            viewport_height,
+            viewport_y,
+            listview_width,
+            listview_height,
+        );
+        true
     }
 
     /// Same as `Self::ensure_updated` but for a ListView
@@ -717,17 +779,31 @@ impl<C: RepeatedItemTree> Default for Conditional<C> {
 }
 
 impl<C: RepeatedItemTree + 'static> Conditional<C> {
+    /// Read the condition so the current tracking scope (e.g. the redraw
+    /// tracker) is notified when the condition changes.
+    pub fn track_model_changes(self: Pin<&Self>) {
+        self.project_ref().model.get();
+    }
+
     /// Call this function to make sure that the model is updated.
-    /// The init function is the function to create a ItemTree
-    pub fn ensure_updated(self: Pin<&Self>, init: impl Fn() -> ItemTreeRc<C>) {
+    /// The init function is the function to create a ItemTree.
+    /// Returns `true` if the instance was created or removed.
+    pub fn ensure_updated(self: Pin<&Self>, init: impl Fn() -> ItemTreeRc<C>) -> bool {
         let model = self.project_ref().model.get();
 
         if !model {
-            drop(self.instance.replace(None));
+            let was_some = self.instance.borrow().is_some();
+            if was_some {
+                drop(self.instance.replace(None));
+            }
+            was_some
         } else if self.instance.borrow().is_none() {
             let i = init();
             self.instance.replace(Some(i.clone()));
             i.init();
+            true
+        } else {
+            false
         }
     }
 

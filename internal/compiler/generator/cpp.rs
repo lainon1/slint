@@ -1683,11 +1683,11 @@ fn generate_item_tree(
         Access::Private,
         Declaration::Function(Function {
             name: "ensure_instantiated_cb".into(),
-            signature: "([[maybe_unused]] slint::private_api::ItemTreeRef component) -> void"
+            signature: "([[maybe_unused]] slint::private_api::ItemTreeRef component) -> bool"
                 .into(),
             is_static: true,
             statements: Some(vec![format!(
-                "reinterpret_cast<const {}*>(component.instance)->ensure_instantiated();",
+                "return reinterpret_cast<const {}*>(component.instance)->ensure_instantiated();",
                 item_tree_class_name
             )]),
             ..Default::default()
@@ -2141,7 +2141,8 @@ fn generate_sub_component(
                         return;
                     }}",
             ));
-            ensure_instantiated_stmts.push(format!("self->{field_name}.ensure_instantiated();"));
+            ensure_instantiated_stmts
+                .push(format!("_changed |= self->{field_name}.ensure_instantiated();"));
         }
 
         target_struct.members.push((
@@ -2239,41 +2240,57 @@ fn generate_sub_component(
             "self->{repeater_id}.set_model_binding([self] {{ (void)self; return {model}; }});",
         ));
 
-        let ensure_updated = if let Some(listview) = &repeated.listview {
+        let (ensure_updated, ensure_updated_prepass) = if let Some(listview) = &repeated.listview {
             let vp_y = access_member(&listview.viewport_y, &ctx).unwrap();
             let vp_h = access_member(&listview.viewport_height, &ctx).unwrap();
             let lv_h = access_member(&listview.listview_height, &ctx).unwrap();
             let vp_w = access_member(&listview.viewport_width, &ctx).unwrap();
             let lv_w = access_member(&listview.listview_width, &ctx).unwrap();
 
-            format!(
+            (format!(
                 "self->{repeater_id}.ensure_updated_listview(self, &{vp_w}, &{vp_h}, &{vp_y}, {lv_w}.get(), {lv_h}.get());"
-            )
+            ),
+            format!(
+                "self->{repeater_id}.ensure_updated_listview_if_dirty(self, &{vp_w}, &{vp_h}, &{vp_y}, {lv_w}.get(), {lv_h}.get())"
+            ))
         } else {
-            format!("self->{repeater_id}.ensure_updated(self);")
+            (format!("self->{repeater_id}.ensure_updated(self);"),
+             format!("self->{repeater_id}.ensure_updated(self)"))
         };
 
-        children_visitor_cases.push(format!(
-            "\n        case {idx}: {{
+        if repeated.listview.is_some() {
+            // ListView needs ensure_updated_listview during visitation to
+            // position items based on the current viewport.
+            children_visitor_cases.push(format!(
+                "\n        case {idx}: {{
                 {ensure_updated}
                 return self->{repeater_id}.visit(order, visitor);
             }}",
-        ));
+            ));
+        } else {
+            // Non-ListView repeaters and conditionals only need dependency
+            // tracking; instances are materialized by the pre-pass.
+            children_visitor_cases.push(format!(
+                "\n        case {idx}: {{
+                self->{repeater_id}.track_model_changes();
+                return self->{repeater_id}.visit(order, visitor);
+            }}",
+            ));
+        }
         subtrees_ranges_cases.push(format!(
             "\n        case {idx}: {{
-                {ensure_updated}
                 return self->{repeater_id}.index_range();
             }}",
         ));
         subtrees_components_cases.push(format!(
             "\n        case {idx}: {{
-                {ensure_updated}
                 *result = self->{repeater_id}.instance_at(subtree_index);
                 return;
             }}",
         ));
-        ensure_instantiated_stmts
-            .push(format!("{ensure_updated} self->{repeater_id}.recurse_ensure_instantiated();"));
+        ensure_instantiated_stmts.push(format!(
+            "_changed |= {ensure_updated_prepass}; _changed |= self->{repeater_id}.recurse_ensure_instantiated();"
+        ));
 
         let rep_type = match data_type {
             Some(data_type) => {
@@ -2526,13 +2543,17 @@ fn generate_sub_component(
     );
 
     {
-        let mut stmts = vec!["[[maybe_unused]] auto self = this;".to_owned()];
+        let mut stmts = vec![
+            "[[maybe_unused]] auto self = this;".to_owned(),
+            "bool _changed = false;".to_owned(),
+        ];
         stmts.extend(ensure_instantiated_stmts);
+        stmts.push("return _changed;".to_owned());
         target_struct.members.push((
             field_access,
             Declaration::Function(Function {
                 name: "ensure_instantiated".into(),
-                signature: "() const -> void".into(),
+                signature: "() const -> bool".into(),
                 statements: Some(stmts),
                 ..Default::default()
             }),
