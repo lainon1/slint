@@ -579,7 +579,10 @@ impl<C: RepeatedItemTree + 'static> Repeater<C> {
         let indices_to_init = update_all_instances(&mut ops, offset, count);
 
         drop(inner);
-        self.init_instances(indices_to_init);
+        // Run init callbacks without tracking so that property reads from
+        // init code do not attach to the current evaluation context (e.g.
+        // the redraw tracker or a layout binding).
+        crate::properties::evaluate_no_tracking(|| self.init_instances(indices_to_init));
     }
 
     fn init_instances(&self, indices: Vec<usize>) {

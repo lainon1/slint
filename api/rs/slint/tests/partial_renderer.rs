@@ -832,6 +832,55 @@ fn create_item_tree_during_rendering() {
 }
 
 #[test]
+fn init_property_read_does_not_trigger_redraw() {
+    slint::slint! {
+        export component Ui inherits Window {
+            width: 100px;
+            height: 100px;
+
+            in property <bool> cond: false;
+            in property <length> unrelated: 10px;
+            property <length> stash;
+
+            if cond: Rectangle {
+                x: 5px;
+                y: 5px;
+                width: 20px;
+                height: 20px;
+                background: red;
+                // The init callback reads `unrelated`.  That read must NOT
+                // register as a dependency of the redraw tracker.
+                init => { stash = unrelated; }
+            }
+        }
+    }
+
+    slint::platform::set_platform(Box::new(TestPlatform)).ok();
+    let ui = Ui::new().unwrap();
+    let window = WINDOW.with(|x| x.clone());
+    window.set_size(slint::PhysicalSize::new(100, 100));
+    ui.show().unwrap();
+    assert!(window.draw_if_needed(|renderer| {
+        do_test_render_region(renderer, 0, 0, 100, 100);
+    }));
+    assert!(!window.draw_if_needed(|_| { unreachable!() }));
+
+    // Activate the conditional — the rectangle appears and init runs.
+    ui.set_cond(true);
+    assert!(window.draw_if_needed(|renderer| {
+        do_test_render_region(renderer, 5, 5, 25, 25);
+    }));
+    assert!(!window.draw_if_needed(|_| { unreachable!() }));
+
+    // Change the property that the init callback read.
+    // This must NOT trigger a redraw because init reads should be untracked.
+    ui.set_unrelated(42.0);
+    assert!(!window.draw_if_needed(|_| {
+        unreachable!("changing a property only read by init must not trigger a redraw")
+    }));
+}
+
+#[test]
 fn issue_9882_borrow_mut() {
     slint::slint! {
         export component App inherits Window {

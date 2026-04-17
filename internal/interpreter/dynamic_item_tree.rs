@@ -824,11 +824,9 @@ extern "C" fn visit_children_item(
                 // Do nothing: We are ComponentContainer and Our parent already did all the work!
                 VisitChildrenResult::CONTINUE
             } else {
-                // `ensure_updated` needs a 'static lifetime so we must call get_untagged.
-                // Safety: we do not mix the component with other component id in this function
+                generativity::make_guard!(guard);
                 let rep_in_comp =
-                    unsafe { instance_ref.description.repeater[index as usize].get_untagged() };
-                ensure_repeater_updated(instance_ref, rep_in_comp);
+                    instance_ref.description.repeater[index as usize].unerase(guard);
                 let repeater = rep_in_comp.offset.apply_pin(instance_ref.instance);
                 repeater.visit(order, visitor)
             }
@@ -2171,12 +2169,10 @@ extern "C" fn get_subtree_range(component: ItemTreeRefPin, index: u32) -> IndexR
             i_slint_core::items::ComponentContainer,
         >(container)
         .unwrap();
-        container.ensure_updated();
         container.subtree_range()
     } else {
-        let rep_in_comp =
-            unsafe { instance_ref.description.repeater[index as usize].get_untagged() };
-        ensure_repeater_updated(instance_ref, rep_in_comp);
+        generativity::make_guard!(guard);
+        let rep_in_comp = instance_ref.description.repeater[index as usize].unerase(guard);
 
         let repeater = rep_in_comp.offset.apply(&instance_ref.instance);
         repeater.range().into()
@@ -2206,14 +2202,12 @@ extern "C" fn get_subtree(
             i_slint_core::items::ComponentContainer,
         >(container)
         .unwrap();
-        container.ensure_updated();
         if subtree_index == 0 {
             *result = container.subtree_component();
         }
     } else {
-        let rep_in_comp =
-            unsafe { instance_ref.description.repeater[index as usize].get_untagged() };
-        ensure_repeater_updated(instance_ref, rep_in_comp);
+        generativity::make_guard!(guard);
+        let rep_in_comp = instance_ref.description.repeater[index as usize].unerase(guard);
 
         let repeater = rep_in_comp.offset.apply(&instance_ref.instance);
         if let Some(instance_at) = repeater.instance_at(subtree_index) {
