@@ -972,25 +972,29 @@ fn generate_sub_component(
                     }
                 });
             });
-            let (ensure_updated, ensure_updated_prepass) = if let Some(listview) = &repeated.listview {
+            let (ensure_updated, ensure_updated_prepass) = if let Some(listview) =
+                &repeated.listview
+            {
                 let vp_y = access_member(&listview.viewport_y, &ctx).unwrap();
                 let vp_h = access_member(&listview.viewport_height, &ctx).unwrap();
                 let lv_h = access_member(&listview.listview_height, &ctx).unwrap();
                 let vp_w = access_member(&listview.viewport_width, &ctx).unwrap();
                 let lv_w = access_member(&listview.listview_width, &ctx).unwrap();
 
-                (quote! {
-                    #inner_component_id::FIELD_OFFSETS.#repeater_id().apply_pin(_self).ensure_updated_listview(
-                        || { #rep_inner_component_id::new(_self.self_weak.get().unwrap().clone()).unwrap().into() },
-                        #vp_w, #vp_h, #vp_y, #lv_w.get(), #lv_h
-                    );
-                },
-                quote! {
-                    #inner_component_id::FIELD_OFFSETS.#repeater_id().apply_pin(_self).ensure_updated_listview_if_dirty(
-                        || { #rep_inner_component_id::new(_self.self_weak.get().unwrap().clone()).unwrap().into() },
-                        #vp_w, #vp_h, #vp_y, #lv_w.get(), #lv_h
-                    )
-                })
+                (
+                    quote! {
+                        #inner_component_id::FIELD_OFFSETS.#repeater_id().apply_pin(_self).ensure_updated_listview(
+                            || { #rep_inner_component_id::new(_self.self_weak.get().unwrap().clone()).unwrap().into() },
+                            #vp_w, #vp_h, #vp_y, #lv_w.get(), #lv_h
+                        );
+                    },
+                    quote! {
+                        #inner_component_id::FIELD_OFFSETS.#repeater_id().apply_pin(_self).ensure_updated_listview_if_dirty(
+                            || { #rep_inner_component_id::new(_self.self_weak.get().unwrap().clone()).unwrap().into() },
+                            #vp_w, #vp_h, #vp_y, #lv_w.get(), #lv_h
+                        )
+                    },
+                )
             } else {
                 let eu = quote! {
                     #inner_component_id::FIELD_OFFSETS.#repeater_id().apply_pin(_self).ensure_updated(

@@ -1122,41 +1122,38 @@ public:
     /// binding nor the dirty flag is set. Returns true when work was done.
     template<typename Parent>
     bool ensure_updated_listview_if_dirty(const Parent *parent,
-                                 const private_api::Property<float> *viewport_width,
-                                 const private_api::Property<float> *viewport_height,
-                                 const private_api::Property<float> *viewport_y,
-                                 float listview_width, float listview_height) const
+                                          const private_api::Property<float> *viewport_width,
+                                          const private_api::Property<float> *viewport_height,
+                                          const private_api::Property<float> *viewport_y,
+                                          float listview_width, float listview_height) const
     {
         if (!is_dirty())
             return false;
-        ensure_updated_listview(parent, viewport_width, viewport_height,
-                                viewport_y, listview_width, listview_height);
+        ensure_updated_listview(parent, viewport_width, viewport_height, viewport_y, listview_width,
+                                listview_height);
         return true;
     }
 
     /// Returns true if the repeater's model or data has changed since the
     /// last ensure_updated call.
-    bool is_dirty() const
-    {
-        return model.is_dirty() || (inner && inner->is_dirty.get());
-    }
+    bool is_dirty() const { return model.is_dirty() || (inner && inner->is_dirty.get()); }
 
     /// Read the model and dirty flag so the current tracking scope (e.g. the
     /// redraw tracker) is notified when the model or its data changes.
     void track_model_changes() const
     {
         model.get();
-        if (inner) inner->is_dirty.get();
+        if (inner)
+            inner->is_dirty.get();
     }
 
     /// Like track_model_changes but also reads the viewport properties so
     /// that scrolling triggers a redraw.
-    void track_changes_listview(
-            const private_api::Property<float> *viewport_width,
-            const private_api::Property<float> *viewport_height,
-            const private_api::Property<float> *viewport_y,
-            [[maybe_unused]] float listview_width,
-            const private_api::Property<float> *listview_height) const
+    void track_changes_listview(const private_api::Property<float> *viewport_width,
+                                const private_api::Property<float> *viewport_height,
+                                const private_api::Property<float> *viewport_y,
+                                [[maybe_unused]] float listview_width,
+                                const private_api::Property<float> *listview_height) const
     {
         track_model_changes();
         viewport_width->get();
@@ -1278,10 +1275,7 @@ public:
 
     /// Read the condition so the current tracking scope (e.g. the redraw
     /// tracker) is notified when the condition changes.
-    void track_model_changes() const
-    {
-        model.get();
-    }
+    void track_model_changes() const { model.get(); }
 
     uint64_t visit(TraversalOrder order, private_api::ItemVisitorRefMut visitor) const
     {

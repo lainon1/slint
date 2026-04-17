@@ -2247,15 +2247,19 @@ fn generate_sub_component(
             let vp_w = access_member(&listview.viewport_width, &ctx).unwrap();
             let lv_w = access_member(&listview.listview_width, &ctx).unwrap();
 
-            (format!(
-                "self->{repeater_id}.ensure_updated_listview(self, &{vp_w}, &{vp_h}, &{vp_y}, {lv_w}.get(), {lv_h}.get());"
-            ),
-            format!(
-                "self->{repeater_id}.ensure_updated_listview_if_dirty(self, &{vp_w}, &{vp_h}, &{vp_y}, {lv_w}.get(), {lv_h}.get())"
-            ))
+            (
+                format!(
+                    "self->{repeater_id}.ensure_updated_listview(self, &{vp_w}, &{vp_h}, &{vp_y}, {lv_w}.get(), {lv_h}.get());"
+                ),
+                format!(
+                    "self->{repeater_id}.ensure_updated_listview_if_dirty(self, &{vp_w}, &{vp_h}, &{vp_y}, {lv_w}.get(), {lv_h}.get())"
+                ),
+            )
         } else {
-            (format!("self->{repeater_id}.ensure_updated(self);"),
-             format!("self->{repeater_id}.ensure_updated(self)"))
+            (
+                format!("self->{repeater_id}.ensure_updated(self);"),
+                format!("self->{repeater_id}.ensure_updated(self)"),
+            )
         };
 
         if repeated.listview.is_some() {
