@@ -16,10 +16,14 @@ use crate::weather::weathercontroller::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-use async_std::task::spawn as spawn_task;
+fn spawn_task(future: impl core::future::Future<Output = ()> + Send + 'static) {
+    smol::spawn(future).detach();
+}
 
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen_futures::spawn_local as spawn_task;
+fn spawn_task(future: impl core::future::Future<Output = ()> + 'static) {
+    wasm_bindgen_futures::spawn_local(future);
+}
 
 pub struct WeatherDisplayController {
     data_controller: WeatherControllerSharedPointer,
